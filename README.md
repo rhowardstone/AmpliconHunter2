@@ -29,7 +29,7 @@ ls -d "$PWD"/2bit/*.2bit > 2bit/file_list.txt
 ```
 
 
-2. Create `primers.txt` on two lines: `<FORWARD>\n<REVERSE>`, e.g. you may use the following for V1V9 (full-length 16S):
+2. Create `primers.txt` on two lines: `<FORWARD>\n<REVERSE>` (5' -> 3' direction), e.g. you may use the following for V1V9 (full-length 16S):
 
 ```
 AGRGTTYGATYMTGGCTCAG
