@@ -24,14 +24,16 @@ CPU must support AVX2. GCC 9+ recommended.
 1. Batch-compress FASTA to 2-bit and capture the file list:
 
 ```bash
-amplicon_hunter compress --input-dir genomes/ --output 2bit/ \
-  --threads 32 --batch-size 500 > 2bit/file_list.txt
+amplicon_hunter compress --input-dir genomes/ --output 2bit/ --threads 32 --batch-size 500
+ls -d "$PWD"/2bit/*.2bit > 2bit/file_list.txt
 ```
 
-2. Create `primers.txt` with one line: `<FORWARD> <REVERSE>`, e.g.:
+
+2. Create `primers.txt` on two lines: `<FORWARD>\n<REVERSE>`, e.g. you may use the following for V1V9 (full-length 16S):
 
 ```
-AGAGTTTGATCMTGGCTCAG GGACTACHVGGGTWTCTAAT
+AGRGTTYGATYMTGGCTCAG
+RGYTACCTTGTTACGACTT
 ```
 
 3. Run the finder:
@@ -42,7 +44,7 @@ amplicon_hunter run \
   --primers primers.txt \
   --output amplicons.fa \
   --threads 32 \
-  --mismatches 2 --clamp 5 \
+  --mismatches 2 --clamp 3 \
   --min-length 50 --max-length 5000 \
   --fb-len 8 --rb-len 8 \
   --trim-primers \
@@ -54,7 +56,7 @@ amplicon_hunter run \
 FASTA with annotated headers:
 
 ```
->seqid.source=batch_t0_b1.2bit.coordinates=12345-13567.orientation=FR.fprimer=... .rprimer=... .fb=ACGT .rb=TGCA
+>seqid.source=batch_t0_b1.2bit.coordinates=12345-13567.orientation=FR.fprimer=... .rprimer=... .fb=ACGT.rb=TGCA
 ACGT...
 ```
 
@@ -63,7 +65,7 @@ Header fields: source batch file, genomic coordinates, orientation, matched prim
 ## Notes and limits
 
 * Mismatches are substitutions only. No indels.
-* Non-ACGT input symbols are mapped to a fallback base during 2-bit packing. Clean or uppercase FASTA if that matters.
+* Non-ACGT input symbols are mapped to the alphabetically first possible base during 2-bit packing. Clean or uppercase FASTA if that matters.
 * Temp files are written under `/tmp/amplicon_hunter_<pid>` and merged automatically.
 
 ## Cite
