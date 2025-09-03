@@ -65,7 +65,7 @@ Header fields: source batch file, genomic coordinates, orientation, matched prim
 ## Notes and limits
 
 * Mismatches are substitutions only. No indels.
-* Non-ACGT input symbols are mapped to the alphabetically first possible base during 2-bit packing. Clean or uppercase FASTA if that matters.
+* Non-ACGT input symbols are mapped to the alphabetically first possible base during 2-bit packing. Uppercase and lowercase treated identically.
 * Temp files are written under `/tmp/amplicon_hunter_<pid>` and merged automatically.
 * If your input is FASTQ format, please see the Python version of our tool: [AmpliconHunter Version 1.1](https://github.com/rhowardstone/AmpliconHunter)
 
