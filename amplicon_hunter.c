@@ -26,7 +26,7 @@ extern double tm_nn(const char* seq, const char* c_seq, int shift,
                    double Na, double K, double Tris, double Mg, double dNTPs,
                    int saltcorr);
 
-#define VERSION "3.0.0"  // IUPAC-aware + chunked reading + Tm calculation version
+#define VERSION "2.0.0"  // IUPAC-aware + chunked reading + Tm calculation version
 #define MAX_LINE_LENGTH 65536
 #define MAX_PATH_LENGTH 4096
 #define MAX_SEQ_LENGTH 100000000
@@ -1679,7 +1679,7 @@ int run_command(const char *input_list, const char *primers_file, const char *ou
     fclose(fp);
     
     fprintf(stderr, "Processing %d files with %d threads\n", num_files, num_threads);
-    fprintf(stderr, "Using chunked reading mode (%d MB chunks, truly constant memory)\n", 
+    fprintf(stderr, "Using chunked reading mode (%d MB chunks)\n", 
             MMAP_CHUNK_SIZE / (1024 * 1024));
     
     // Create temporary directory for intermediate files
@@ -1797,8 +1797,7 @@ int run_command(const char *input_list, const char *primers_file, const char *ou
 }
 
 void print_usage() {
-    printf("AmpliconHunter v%s - IUPAC-aware, chunked-reading amplicon finder\n\n", VERSION);
-    printf("Uses %d MB chunks for truly constant memory usage\n\n", MMAP_CHUNK_SIZE / (1024 * 1024));
+    printf("AmpliconHunter v%s - High-performance in-silico PCR\n\n", VERSION);
     printf("Usage:\n");
     printf("  amplicon_hunter compress --input-dir <dir> --output <dir> [--threads <n>] [--batch-size <MB>]\n");
     printf("  amplicon_hunter run --input <file_list> --primers <file> --output <file> [options]\n\n");
