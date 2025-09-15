@@ -7,6 +7,7 @@ SIMD-accelerated, in-silico PCR for very large FASTA sets. AVX2 bit-mask IUPAC m
 * AVX2 one-byte IUPAC masks with exact 3′ clamp and up to `--mismatches` substitutions.
 * Streaming 2-bit batches and mmap-aware reads for low RSS on huge inputs.
 * FR and RF by default. `--include-offtarget` adds FF and RR. RF is reverse-complemented on output.
+* Melting temperature annotation and optional filtering (`--Tm`).
 * Optional fixed-length flank barcodes (`--fb-len`, `--rb-len`) and `--trim-primers`.
 * FASTA-only; see [AmpliconHunter Version 1.1](https://github.com/rhowardstone/AmpliconHunter) if you require more advanced features.
 
