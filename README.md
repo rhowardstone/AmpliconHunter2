@@ -110,6 +110,10 @@ Tm calculation options:
 * Temp files are written under `/tmp/amplicon_hunter_<pid>` and merged automatically.
 * If your input is FASTQ format, please see the Python version of our tool: [AmpliconHunter Version 1.1](https://github.com/rhowardstone/AmpliconHunter)
 
+## Benchmarking repo
+
+For detailed usage examples, and for comparing our intermediate versions, please see our [Benchmarking repo for AmpliconHunter2](https://github.com/rhowardstone/AmpliconHunter2_benchmark).
+
 ## Cite
 
 If this tool supports your work, cite the AmpliconHunter2 application note (will update with DOI when available).
