@@ -20,7 +20,13 @@
 #include <malloc.h>     // For malloc_trim on Linux
 #endif
 
-#define VERSION "2.0.0"  // IUPAC-aware + chunked reading version
+// Include Tm calculation library
+extern double tm_nn(const char* seq, const char* c_seq, int shift,
+                   double dnac1, double dnac2, bool selfcomp,
+                   double Na, double K, double Tris, double Mg, double dNTPs,
+                   int saltcorr);
+
+#define VERSION "3.0.0"  // IUPAC-aware + chunked reading + Tm calculation version
 #define MAX_LINE_LENGTH 65536
 #define MAX_PATH_LENGTH 4096
 #define MAX_SEQ_LENGTH 100000000
@@ -94,6 +100,8 @@ typedef struct {
     uint32_t start;
     uint32_t end;
     char primer_seq[MAX_PRIMER_LENGTH];
+    char template_seq[MAX_PRIMER_LENGTH];  // Template sequence at match location
+    double melting_temp;  // Tm for this match
 } PrimerMatch;
 
 // Amplicon structure
@@ -108,6 +116,7 @@ typedef struct {
     char *reverse_barcode;
     char forward_primer_seq[MAX_PRIMER_LENGTH];
     char reverse_primer_seq[MAX_PRIMER_LENGTH];
+    double melting_temp;  // Tm annotation
 } Amplicon;
 
 // Temporary file info for amplicon writing
@@ -137,7 +146,7 @@ typedef struct {
     int num_files;
     int start_idx;
     int end_idx;
-    
+
     // Primer info - including precomputed RC masks
     const uint8_t *forward_mask;
     const uint8_t *reverse_mask;
@@ -145,7 +154,9 @@ typedef struct {
     const uint8_t *reverse_rc_mask;
     int forward_len;
     int reverse_len;
-    
+    char *forward_primer;  // Original primer sequences for Tm calculation
+    char *reverse_primer;
+
     // Parameters
     int mismatches;
     int clamp;
@@ -155,6 +166,17 @@ typedef struct {
     int rb_len;
     bool trim_primers;
     bool include_offtarget;
+
+    // Tm parameters
+    double Tm_threshold;  // Minimum Tm threshold (0 = no filtering)
+    double dnac1;  // Primer concentration (nM)
+    double dnac2;  // Template concentration (nM)
+    double Na;     // Sodium concentration (mM)
+    double K;      // Potassium concentration (mM)
+    double Tris;   // Tris buffer concentration (mM)
+    double Mg;     // Magnesium concentration (mM)
+    double dNTPs;  // dNTP concentration (mM)
+    int saltcorr;  // Salt correction method (0-7)
     
     // Results with periodic writing
     Amplicon *amplicons;
@@ -284,6 +306,166 @@ void process_spaces_in_id(char * restrict id) {
     for (int i = 0; id[i]; i++) {
         if (id[i] == ' ' || id[i] == '\t') id[i] = '_';
     }
+}
+
+// IUPAC expansion helper - count number of possibilities
+int count_iupac_possibilities(const char *seq) {
+    int count = 1;
+    for (int i = 0; seq[i]; i++) {
+        switch (toupper(seq[i])) {
+            case 'R': case 'Y': case 'S': case 'W': case 'K': case 'M':
+                count *= 2; break;
+            case 'B': case 'D': case 'H': case 'V':
+                count *= 3; break;
+            case 'N':
+                count *= 4; break;
+        }
+    }
+    return count;
+}
+
+// Expand IUPAC code to all possibilities
+void expand_iupac_recursive(const char *seq, int pos, char *current,
+                           char **results, int *result_idx) {
+    if (!seq[pos]) {
+        strcpy(results[(*result_idx)++], current);
+        return;
+    }
+
+    char c = toupper(seq[pos]);
+    const char *bases = NULL;
+
+    switch (c) {
+        case 'A': case 'C': case 'G': case 'T': case 'U':
+            current[pos] = (c == 'U') ? 'T' : c;
+            expand_iupac_recursive(seq, pos + 1, current, results, result_idx);
+            break;
+        case 'R': bases = "AG"; break;
+        case 'Y': bases = "CT"; break;
+        case 'S': bases = "GC"; break;
+        case 'W': bases = "AT"; break;
+        case 'K': bases = "GT"; break;
+        case 'M': bases = "AC"; break;
+        case 'B': bases = "CGT"; break;
+        case 'D': bases = "AGT"; break;
+        case 'H': bases = "ACT"; break;
+        case 'V': bases = "ACG"; break;
+        case 'N': bases = "ACGT"; break;
+        default:
+            current[pos] = 'N';
+            expand_iupac_recursive(seq, pos + 1, current, results, result_idx);
+            return;
+    }
+
+    if (bases) {
+        for (int i = 0; bases[i]; i++) {
+            current[pos] = bases[i];
+            expand_iupac_recursive(seq, pos + 1, current, results, result_idx);
+        }
+    }
+}
+
+// Expand IUPAC sequence to all possibilities
+char** expand_iupac_sequence(const char *seq, int *num_expansions) {
+    int len = strlen(seq);
+    *num_expansions = count_iupac_possibilities(seq);
+
+    // Allocate array of sequences
+    char **results = (char**)malloc(*num_expansions * sizeof(char*));
+    for (int i = 0; i < *num_expansions; i++) {
+        results[i] = (char*)malloc((len + 1) * sizeof(char));
+    }
+
+    // Expand recursively
+    char *current = (char*)malloc((len + 1) * sizeof(char));
+    current[len] = '\0';
+    int result_idx = 0;
+    expand_iupac_recursive(seq, 0, current, results, &result_idx);
+    free(current);
+
+    return results;
+}
+
+// Free expanded sequences
+void free_expanded_sequences(char **sequences, int count) {
+    for (int i = 0; i < count; i++) {
+        free(sequences[i]);
+    }
+    free(sequences);
+}
+
+// Get complement of a DNA sequence (not reverse complement, just complement)
+char* get_complement_seq(const char *seq, int len) {
+    char *comp = (char*)malloc(len + 1);
+    for (int i = 0; i < len; i++) {
+        switch(toupper(seq[i])) {
+            case 'A': comp[i] = 'T'; break;
+            case 'T': comp[i] = 'A'; break;
+            case 'G': comp[i] = 'C'; break;
+            case 'C': comp[i] = 'G'; break;
+            case 'U': comp[i] = 'A'; break;
+            // IUPAC ambiguity codes
+            case 'R': comp[i] = 'Y'; break;  // R (A/G) -> Y (C/T)
+            case 'Y': comp[i] = 'R'; break;  // Y (C/T) -> R (A/G)
+            case 'S': comp[i] = 'S'; break;  // S (G/C) -> S (C/G)
+            case 'W': comp[i] = 'W'; break;  // W (A/T) -> W (T/A)
+            case 'K': comp[i] = 'M'; break;  // K (G/T) -> M (C/A)
+            case 'M': comp[i] = 'K'; break;  // M (A/C) -> K (T/G)
+            case 'B': comp[i] = 'V'; break;  // B (C/G/T) -> V (G/C/A)
+            case 'D': comp[i] = 'H'; break;  // D (A/G/T) -> H (T/C/A)
+            case 'H': comp[i] = 'D'; break;  // H (A/C/T) -> D (T/G/A)
+            case 'V': comp[i] = 'B'; break;  // V (A/C/G) -> B (T/G/C)
+            case 'N': comp[i] = 'N'; break;  // N -> N
+            default: comp[i] = 'N'; break;
+        }
+    }
+    comp[len] = '\0';
+    return comp;
+}
+
+// Calculate Tm for a primer match using min/max logic
+double calculate_match_tm(const char *primer, const char *template, int primer_len,
+                         double dnac1, double dnac2, double Na, double K,
+                         double Tris, double Mg, double dNTPs, int saltcorr) {
+    // Extract the template region that matches the primer
+    char template_region[MAX_PRIMER_LENGTH];
+    strncpy(template_region, template, primer_len);
+    template_region[primer_len] = '\0';
+
+    // Get the complement of the template region (matching Python's degen_comp logic)
+    char *template_complement = get_complement_seq(template_region, primer_len);
+
+    // Since genomic sequences are non-degenerate (2bit format),
+    // we only need to expand the primer's IUPAC codes
+    int num_primer_exp;
+    char **primer_expansions = expand_iupac_sequence(primer, &num_primer_exp);
+
+    double max_primer_tm = -1.0;
+    bool has_valid_tm = false;
+
+    // For each primer possibility (all are present in solution)
+    for (int p = 0; p < num_primer_exp; p++) {
+        // Calculate Tm between primer and complement of template
+        // This matches Python's behavior where it uses degen_comp
+        double tm = tm_nn(primer_expansions[p], template_complement, 0,
+                        dnac1, dnac2, false,
+                        Na, K, Tris, Mg, dNTPs, saltcorr);
+
+        if (!isnan(tm)) {
+            has_valid_tm = true;
+            // Take max - only one primer variant needs to work
+            if (tm > max_primer_tm) {
+                max_primer_tm = tm;
+            }
+        }
+    }
+
+    // Clean up
+    free(template_complement);
+    free_expanded_sequences(primer_expansions, num_primer_exp);
+
+    // Return -1 if no valid Tm was calculated (matching Python's behavior)
+    return has_valid_tm ? max_primer_tm : -1.0;
 }
 
 // Check if file has FASTA extension (NO FASTQ)
@@ -852,7 +1034,11 @@ PrimerMatch* find_primer_matches(const char * restrict sequence, int seq_len,
                                  const uint8_t * restrict reverse_mask, int r_len,
                                  const uint8_t * restrict forward_rc_mask,
                                  const uint8_t * restrict reverse_rc_mask,
-                                 int max_mismatches, int clamp, int * restrict num_matches) {
+                                 const char *forward_primer, const char *reverse_primer,
+                                 int max_mismatches, int clamp, int * restrict num_matches,
+                                 double Tm_threshold, double dnac1, double dnac2,
+                                 double Na, double K, double Tris, double Mg,
+                                 double dNTPs, int saltcorr) {
     
     int capacity = 100;
     PrimerMatch *matches = (PrimerMatch*)malloc(capacity * sizeof(PrimerMatch));
@@ -876,6 +1062,19 @@ PrimerMatch* find_primer_matches(const char * restrict sequence, int seq_len,
             matches[*num_matches].end = pos + f_len;
             strncpy(matches[*num_matches].primer_seq, sequence + pos, f_len);
             matches[*num_matches].primer_seq[f_len] = '\0';
+            strncpy(matches[*num_matches].template_seq, sequence + pos, f_len);
+            matches[*num_matches].template_seq[f_len] = '\0';
+
+            // Calculate Tm for this match
+            matches[*num_matches].melting_temp = calculate_match_tm(
+                forward_primer, sequence + pos, f_len,
+                dnac1, dnac2, Na, K, Tris, Mg, dNTPs, saltcorr);
+
+            // Skip if below Tm threshold
+            if (Tm_threshold > 0 && matches[*num_matches].melting_temp < Tm_threshold) {
+                continue;
+            }
+
             (*num_matches)++;
         }
     }
@@ -894,6 +1093,22 @@ PrimerMatch* find_primer_matches(const char * restrict sequence, int seq_len,
             matches[*num_matches].end = pos + f_len;
             strncpy(matches[*num_matches].primer_seq, sequence + pos, f_len);
             matches[*num_matches].primer_seq[f_len] = '\0';
+            strncpy(matches[*num_matches].template_seq, sequence + pos, f_len);
+            matches[*num_matches].template_seq[f_len] = '\0';
+
+            // Calculate Tm for this match
+            // For RC matches: use original primer with RC of template (matches Python logic)
+            char *template_rc = reverse_complement_string(sequence + pos, f_len);
+            matches[*num_matches].melting_temp = calculate_match_tm(
+                forward_primer, template_rc, f_len,
+                dnac1, dnac2, Na, K, Tris, Mg, dNTPs, saltcorr);
+            free(template_rc);
+
+            // Skip if below Tm threshold
+            if (Tm_threshold > 0 && matches[*num_matches].melting_temp < Tm_threshold) {
+                continue;
+            }
+
             (*num_matches)++;
         }
     }
@@ -912,6 +1127,19 @@ PrimerMatch* find_primer_matches(const char * restrict sequence, int seq_len,
             matches[*num_matches].end = pos + r_len;
             strncpy(matches[*num_matches].primer_seq, sequence + pos, r_len);
             matches[*num_matches].primer_seq[r_len] = '\0';
+            strncpy(matches[*num_matches].template_seq, sequence + pos, r_len);
+            matches[*num_matches].template_seq[r_len] = '\0';
+
+            // Calculate Tm for this match
+            matches[*num_matches].melting_temp = calculate_match_tm(
+                reverse_primer, sequence + pos, r_len,
+                dnac1, dnac2, Na, K, Tris, Mg, dNTPs, saltcorr);
+
+            // Skip if below Tm threshold
+            if (Tm_threshold > 0 && matches[*num_matches].melting_temp < Tm_threshold) {
+                continue;
+            }
+
             (*num_matches)++;
         }
     }
@@ -930,6 +1158,22 @@ PrimerMatch* find_primer_matches(const char * restrict sequence, int seq_len,
             matches[*num_matches].end = pos + r_len;
             strncpy(matches[*num_matches].primer_seq, sequence + pos, r_len);
             matches[*num_matches].primer_seq[r_len] = '\0';
+            strncpy(matches[*num_matches].template_seq, sequence + pos, r_len);
+            matches[*num_matches].template_seq[r_len] = '\0';
+
+            // Calculate Tm for this match
+            // For RC matches: use original primer with RC of template (matches Python logic)
+            char *template_rc = reverse_complement_string(sequence + pos, r_len);
+            matches[*num_matches].melting_temp = calculate_match_tm(
+                reverse_primer, template_rc, r_len,
+                dnac1, dnac2, Na, K, Tris, Mg, dNTPs, saltcorr);
+            free(template_rc);
+
+            // Skip if below Tm threshold
+            if (Tm_threshold > 0 && matches[*num_matches].melting_temp < Tm_threshold) {
+                continue;
+            }
+
             (*num_matches)++;
         }
     }
@@ -975,10 +1219,13 @@ void write_amplicons_to_temp(AmpliconThreadData *data) {
         
         fprintf(data->temp_file.fp, ">%s.source=%s.coordinates=%u-%u.orientation=%s",
                amp->seq_id, amp->source_file, amp->start, amp->end, amp->orientation);
-        
-        fprintf(data->temp_file.fp, ".fprimer=%s.rprimer=%s", 
+
+        // Add Tm annotation
+        fprintf(data->temp_file.fp, ".Tm=%.2f", amp->melting_temp);
+
+        fprintf(data->temp_file.fp, ".fprimer=%s.rprimer=%s",
                 amp->forward_primer_seq, amp->reverse_primer_seq);
-        
+
         if (amp->forward_barcode) {
             fprintf(data->temp_file.fp, ".fb=%s", amp->forward_barcode);
         }
@@ -1020,7 +1267,11 @@ void process_sequence_for_amplicons(const char * restrict seq_id, const char * r
                                                data->forward_mask, data->forward_len,
                                                data->reverse_mask, data->reverse_len,
                                                data->forward_rc_mask, data->reverse_rc_mask,
-                                               data->mismatches, data->clamp, &num_matches);
+                                               data->forward_primer, data->reverse_primer,
+                                               data->mismatches, data->clamp, &num_matches,
+                                               data->Tm_threshold, data->dnac1, data->dnac2,
+                                               data->Na, data->K, data->Tris, data->Mg,
+                                               data->dNTPs, data->saltcorr);
     
     // Find valid amplicons
     for (int i = 0; i < num_matches - 1; i++) {
@@ -1129,7 +1380,10 @@ void process_sequence_for_amplicons(const char * restrict seq_id, const char * r
             strcpy(amp->orientation, orientation);
             strcpy(amp->forward_primer_seq, matches[i].primer_seq);
             strcpy(amp->reverse_primer_seq, matches[j].primer_seq);
-            
+
+            // Use minimum of both primer Tms for the amplicon
+            amp->melting_temp = fmin(matches[i].melting_temp, matches[j].melting_temp);
+
             data->num_amplicons++;
         }
     }
@@ -1371,7 +1625,9 @@ int compress_command(const char *input_dir, const char *output_dir, int num_thre
 // Run command with periodic amplicon writing
 int run_command(const char *input_list, const char *primers_file, const char *output_file,
                 int num_threads, int mismatches, int clamp, int min_length, int max_length,
-                int fb_len, int rb_len, bool trim_primers, bool include_offtarget) {
+                int fb_len, int rb_len, bool trim_primers, bool include_offtarget,
+                double Tm_threshold, double dnac1, double dnac2,
+                double Na, double K, double Tris, double Mg, double dNTPs, int saltcorr) {
     
     FILE *fp = fopen(primers_file, "r");
     if (!fp) {
@@ -1450,7 +1706,9 @@ int run_command(const char *input_list, const char *primers_file, const char *ou
         thread_data[i].reverse_rc_mask = reverse_rc_mask;
         thread_data[i].forward_len = forward_len;
         thread_data[i].reverse_len = reverse_len;
-        
+        thread_data[i].forward_primer = strdup(forward_primer);
+        thread_data[i].reverse_primer = strdup(reverse_primer);
+
         thread_data[i].mismatches = mismatches;
         thread_data[i].clamp = clamp;
         thread_data[i].min_length = min_length;
@@ -1459,6 +1717,17 @@ int run_command(const char *input_list, const char *primers_file, const char *ou
         thread_data[i].rb_len = rb_len;
         thread_data[i].trim_primers = trim_primers;
         thread_data[i].include_offtarget = include_offtarget;
+
+        // Set Tm parameters
+        thread_data[i].Tm_threshold = Tm_threshold;
+        thread_data[i].dnac1 = dnac1;
+        thread_data[i].dnac2 = dnac2;
+        thread_data[i].Na = Na;
+        thread_data[i].K = K;
+        thread_data[i].Tris = Tris;
+        thread_data[i].Mg = Mg;
+        thread_data[i].dNTPs = dNTPs;
+        thread_data[i].saltcorr = saltcorr;
         
         // Initialize amplicon buffer with SMALL initial capacity for streaming
         thread_data[i].amplicons = (Amplicon*)malloc(AMPLICON_BUFFER_SIZE * sizeof(Amplicon));
@@ -1508,6 +1777,8 @@ int run_command(const char *input_list, const char *primers_file, const char *ou
     // Clean up
     for (int i = 0; i < num_threads; i++) {
         free(thread_data[i].amplicons);
+        free(thread_data[i].forward_primer);
+        free(thread_data[i].reverse_primer);
     }
     
     free(forward_mask);
@@ -1551,6 +1822,16 @@ void print_usage() {
     printf("  --rb-len <n>         Reverse barcode length (default: 0)\n");
     printf("  --trim-primers       Trim primer sequences\n");
     printf("  --include-offtarget  Include FF and RR orientations\n");
+    printf("\nTm calculation options:\n");
+    printf("  --Tm <n>             Minimum melting temperature threshold (default: 0, no filtering)\n");
+    printf("  --dnac1 <n>          Primer concentration in nM (default: 1000)\n");
+    printf("  --dnac2 <n>          Template concentration in nM (default: 25)\n");
+    printf("  --Na <n>             Sodium concentration in mM (default: 50)\n");
+    printf("  --K <n>              Potassium concentration in mM (default: 0)\n");
+    printf("  --Tris <n>           Tris buffer concentration in mM (default: 0)\n");
+    printf("  --Mg <n>             Magnesium concentration in mM (default: 4)\n");
+    printf("  --dNTPs <n>          dNTP concentration in mM (default: 1.6)\n");
+    printf("  --saltcorr <n>       Salt correction method 0-7 (default: 5)\n");
 }
 
 int main(int argc, char *argv[]) {
@@ -1600,7 +1881,18 @@ int main(int argc, char *argv[]) {
         int rb_len = 0;
         bool trim_primers = false;
         bool include_offtarget = false;
-        
+
+        // Tm parameters with defaults matching Python version
+        double Tm_threshold = 0.0;  // 0 = no filtering
+        double dnac1 = 1000.0;  // Primer concentration (nM)
+        double dnac2 = 25.0;    // Template concentration (nM)
+        double Na = 50.0;       // Sodium (mM)
+        double K = 0.0;         // Potassium (mM)
+        double Tris = 0.0;      // Tris buffer (mM)
+        double Mg = 4.0;        // Magnesium (mM)
+        double dNTPs = 1.6;     // dNTPs (mM)
+        int saltcorr = 5;       // Salt correction method
+
         for (int i = 2; i < argc; i++) {
             if (strcmp(argv[i], "--input") == 0 && i + 1 < argc) {
                 input_list = argv[++i];
@@ -1626,6 +1918,24 @@ int main(int argc, char *argv[]) {
                 trim_primers = true;
             } else if (strcmp(argv[i], "--include-offtarget") == 0) {
                 include_offtarget = true;
+            } else if (strcmp(argv[i], "--Tm") == 0 && i + 1 < argc) {
+                Tm_threshold = atof(argv[++i]);
+            } else if (strcmp(argv[i], "--dnac1") == 0 && i + 1 < argc) {
+                dnac1 = atof(argv[++i]);
+            } else if (strcmp(argv[i], "--dnac2") == 0 && i + 1 < argc) {
+                dnac2 = atof(argv[++i]);
+            } else if (strcmp(argv[i], "--Na") == 0 && i + 1 < argc) {
+                Na = atof(argv[++i]);
+            } else if (strcmp(argv[i], "--K") == 0 && i + 1 < argc) {
+                K = atof(argv[++i]);
+            } else if (strcmp(argv[i], "--Tris") == 0 && i + 1 < argc) {
+                Tris = atof(argv[++i]);
+            } else if (strcmp(argv[i], "--Mg") == 0 && i + 1 < argc) {
+                Mg = atof(argv[++i]);
+            } else if (strcmp(argv[i], "--dNTPs") == 0 && i + 1 < argc) {
+                dNTPs = atof(argv[++i]);
+            } else if (strcmp(argv[i], "--saltcorr") == 0 && i + 1 < argc) {
+                saltcorr = atoi(argv[++i]);
             }
         }
         
@@ -1637,7 +1947,8 @@ int main(int argc, char *argv[]) {
         
         return run_command(input_list, primers_file, output_file, num_threads,
                           mismatches, clamp, min_length, max_length,
-                          fb_len, rb_len, trim_primers, include_offtarget);
+                          fb_len, rb_len, trim_primers, include_offtarget,
+                          Tm_threshold, dnac1, dnac2, Na, K, Tris, Mg, dNTPs, saltcorr);
         
     } else {
         fprintf(stderr, "Error: Unknown command '%s'\n", argv[1]);

@@ -4,7 +4,7 @@ LDFLAGS = -pthread -lm -flto
 TARGET = amplicon_hunter
 
 # Source files
-SRCS = amplicon_hunter.c
+SRCS = amplicon_hunter.c tm_nn_complete.c
 OBJS = $(SRCS:.c=.o)
 
 # Default target - optimized for streaming memory
