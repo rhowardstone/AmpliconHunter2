@@ -49,6 +49,7 @@ amplicon_hunter run \
   --fb-len 8 --rb-len 8 \
   --trim-primers \
   --include-offtarget    # optional
+  --Tm 50                # optional
 ```
 
 ## Output
@@ -61,6 +62,46 @@ ACGT...
 ```
 
 Header fields: source batch file, genomic coordinates, orientation, matched primer snippets, and optional barcodes.
+
+
+## Full syntax:
+```
+Usage:
+  amplicon_hunter compress --input-dir <dir> --output <dir> [--threads <n>] [--batch-size <MB>]
+  amplicon_hunter run --input <file_list> --primers <file> --output <file> [options]
+
+Compress options:
+  --input-dir <dir>    Directory containing FASTA files
+  --output <dir>       Output directory for compressed files
+  --threads <n>        Number of threads (default: 8)
+  --batch-size <MB>    Max size per batch file in MB (default: 500)
+
+Run options:
+  --input <file>       File list from compress (single column)
+  --primers <file>     Primers file (forward reverse)
+  --output <file>      Output FASTA file
+  --threads <n>        Number of threads (default: 8)
+  --mismatches <n>     Maximum mismatches (default: 0)
+  --clamp <n>          3' clamp size (default: 5)
+  --min-length <n>     Minimum amplicon length (default: 50)
+  --max-length <n>     Maximum amplicon length (default: 5000)
+  --fb-len <n>         Forward barcode length (default: 0)
+  --rb-len <n>         Reverse barcode length (default: 0)
+  --trim-primers       Trim primer sequences
+  --include-offtarget  Include FF and RR orientations
+
+Tm calculation options:
+  --Tm <n>             Minimum melting temperature threshold (default: 0, no filtering)
+  --dnac1 <n>          Primer concentration in nM (default: 1000)
+  --dnac2 <n>          Template concentration in nM (default: 25)
+  --Na <n>             Sodium concentration in mM (default: 50)
+  --K <n>              Potassium concentration in mM (default: 0)
+  --Tris <n>           Tris buffer concentration in mM (default: 0)
+  --Mg <n>             Magnesium concentration in mM (default: 4)
+  --dNTPs <n>          dNTP concentration in mM (default: 1.6)
+  --saltcorr <n>       Salt correction method 0-7 (default: 5)
+```
+
 
 ## Notes and limits
 
