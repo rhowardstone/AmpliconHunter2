@@ -58,7 +58,7 @@ amplicon_hunter run \
 FASTA with annotated headers:
 
 ```
->seqid.source=batch_t0_b1.2bit.coordinates=12345-13567.Tm=60.54.orientation=FR.fprimer=... .rprimer=... .fb=ACGT.rb=TGCA
+>seqid.fileID=original_file.fa.source=batch_t0_b1.2bit.coordinates=12345-13567.Tm=60.54.orientation=FR.fprimer=... .rprimer=... .fb=ACGT.rb=TGCA
 ACGT...
 ```
 
