@@ -540,7 +540,8 @@ void find_sequence_files(const char * restrict dir_path, char *** restrict files
 
 // Write a sequence to a batch file (FASTA ONLY) with IUPAC-aware encoding
 size_t write_sequence_to_batch(BatchFile * restrict batch, const char * restrict header, 
-                               const char * restrict sequence, uint32_t seq_len) {
+                               const char * restrict sequence, uint32_t seq_len,
+                               const char * restrict source_file) {
     size_t bytes_written = 0;
     
     // Process header
@@ -548,10 +549,23 @@ size_t write_sequence_to_batch(BatchFile * restrict batch, const char * restrict
     strcpy(processed_header, header);
     process_spaces_in_id(processed_header);
     
-    // Write header
-    uint32_t header_len = strlen(processed_header);
+    // Extract filename from path (with extension)
+    char filename[MAX_PATH_LENGTH];
+    const char *base = strrchr(source_file, '/');
+    if (!base) base = source_file;
+    else base++;  // Skip the '/'
+    
+    // Copy filename
+    strcpy(filename, base);
+    
+    // Append .fileID={filename} to the header
+    char final_header[MAX_LINE_LENGTH];
+    snprintf(final_header, sizeof(final_header), "%s.fileID=%s", processed_header, filename);
+    
+    // Write header with fileID
+    uint32_t header_len = strlen(final_header);
     fwrite(&header_len, sizeof(uint32_t), 1, batch->seq_fp);
-    fwrite(processed_header, 1, header_len, batch->seq_fp);
+    fwrite(final_header, 1, header_len, batch->seq_fp);
     bytes_written += sizeof(uint32_t) + header_len;
     
     // Write sequence length
@@ -579,6 +593,8 @@ size_t write_sequence_to_batch(BatchFile * restrict batch, const char * restrict
     
     return bytes_written;
 }
+
+
 
 // Finalize a batch file
 void finalize_batch(BatchFile * restrict batch) {
@@ -611,6 +627,7 @@ void start_new_batch(BatchFile * restrict batch, const char * restrict output_di
 }
 
 // Compress files with batching (FASTA ONLY) - STREAMING VERSION
+// Modified compress_files_batched function - passes filename to write_sequence_to_batch
 void compress_files_batched(const char * restrict input_file, BatchFile * restrict batch, 
                            const char * restrict output_dir, int thread_id, size_t batch_size_bytes,
                            FILE * restrict list_fp, pthread_mutex_t * restrict list_mutex) {
@@ -650,7 +667,8 @@ void compress_files_batched(const char * restrict input_file, BatchFile * restri
                     start_new_batch(batch, output_dir, thread_id);
                 }
                 
-                write_sequence_to_batch(batch, current_header, sequence, seq_pos);
+                // Pass input_file to write_sequence_to_batch
+                write_sequence_to_batch(batch, current_header, sequence, seq_pos, input_file);
                 seq_pos = 0;
             }
             
@@ -687,7 +705,8 @@ void compress_files_batched(const char * restrict input_file, BatchFile * restri
             }
             start_new_batch(batch, output_dir, thread_id);
         }
-        write_sequence_to_batch(batch, current_header, sequence, seq_pos);
+        // Pass input_file to write_sequence_to_batch
+        write_sequence_to_batch(batch, current_header, sequence, seq_pos, input_file);
     }
     
     if (current_header) free(current_header);
