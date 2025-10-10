@@ -2,6 +2,8 @@
 
 SIMD-accelerated, in-silico PCR for very large FASTA sets. AVX2 bit-mask IUPAC matching, constant-memory streaming with 2-bit batches, multi-threaded amplicon calling with optional primer trimming and barcode extraction.
 
+See our [webserver](https://ah2.engr.uconn.edu/) for an easy-to-use visual interface running AmpliconHunter2 on five genomes DBs of various sizes (~5.7k genomes to ~2.4M).
+
 ## Features
 
 * AVX2 one-byte IUPAC masks with exact 3′ clamp and up to `--mismatches` substitutions.
