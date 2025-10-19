@@ -120,3 +120,6 @@ For detailed usage examples, and for comparing our intermediate versions, please
 ## Cite
 
 If this tool supports your work, cite the AmpliconHunter2 application note (will update with DOI when available).
+
+## License
+AmpliconHunter2 is licensed under the MIT License. See LICENSE for details.
