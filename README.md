@@ -33,7 +33,7 @@ ls -d "$PWD"/test/compressed/*.2bit > test/file_list.txt
 ```
 
 
-2. Prepare `primers.txt` on two lines: `<FORWARD>\n<REVERSE>` (5' -> 3' direction), test/V1V9_primers contains the following for V1V9 (full-length 16S):
+2. Prepare `primers.txt` on two lines: `<FORWARD>\n<REVERSE>` (5' -> 3' direction), test/V1V9_primers.txt contains the following for V1V9 (full-length 16S):
 
 ```
 AGRGTTYGATYMTGGCTCAG
