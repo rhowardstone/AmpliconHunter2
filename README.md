@@ -17,8 +17,8 @@ See our [webserver](https://ah2.engr.uconn.edu/) for an easy-to-use visual inter
 
 ```bash
 git clone https://github.com/rhowardstone/AmpliconHunter2.git
-cd AmpliconHunter2; make; cd ..;
-sudo cp AmpliconHunter2/amplicon_hunter /usr/local/bin/  #for local installation
+cd AmpliconHunter2; make;
+sudo cp amplicon_hunter /usr/local/bin/  #for local installation
 ```
 
 CPU must support AVX2. GCC 9+ recommended.
