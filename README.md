@@ -18,17 +18,18 @@ See our [webserver](https://ah2.engr.uconn.edu/) for an easy-to-use visual inter
 ```bash
 git clone https://github.com/rhowardstone/AmpliconHunter2.git
 cd AmpliconHunter2; make; cd ..;
+sudo cp AmpliconHunter2/amplicon_hunter /usr/local/bin/  #for local installation
 ```
 
 CPU must support AVX2. GCC 9+ recommended.
 
 ## Quick start
 
-1. Batch-compress FASTA to 2-bit and capture the file list:
+1. Batch-compress FASTA to 2-bit and capture the file list for the test data:
 
 ```bash
-amplicon_hunter compress --input-dir genomes/ --output 2bit/ --threads 32 --batch-size 500
-ls -d "$PWD"/2bit/*.2bit > 2bit/file_list.txt
+amplicon_hunter compress --input-dir test/fasta --output test/compressed
+ls -d "$PWD"/test/compressed/*.2bit > test/file_list.txt
 ```
 
 
@@ -43,16 +44,11 @@ RGYTACCTTGTTACGACTT
 
 ```bash
 amplicon_hunter run \
-  --input 2bit/file_list.txt \
-  --primers primers.txt \
-  --output amplicons.fa \
-  --threads 32 \
-  --mismatches 2 --clamp 3 \
-  --min-length 50 --max-length 5000 \
-  --fb-len 8 --rb-len 8 \
-  --trim-primers \
-  --include-offtarget    # optional
-  --Tm 50                # optional
+  --input test/file_list.txt \
+  --primers test/V1V9_primers.txt \
+  --output test/amplicons.fa
+
+diff test/amplicons{,-check}.fa | wc -l  #should show zero
 ```
 
 ## Output
