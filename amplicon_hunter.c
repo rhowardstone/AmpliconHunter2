@@ -1620,7 +1620,7 @@ int compress_command(const char *input_dir, const char *output_dir, int num_thre
     pthread_mutex_destroy(&list_mutex);
     
     fprintf(stderr, "Compression complete. Created batched files (max %zu MB each)\n", batch_size_mb);
-    fprintf(stderr, "Using IUPAC-aware encoding (degenerate bases mapped to lexicographically first valid base)\n");
+    fprintf(stderr, "Using IUPAC-aware encoding for primers (degenerate bases in genomes mapped to lexicographically first valid base)\n");
     
     // Report memory usage
 #ifdef __linux__
